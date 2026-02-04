@@ -37,8 +37,9 @@ def make_inputs(context):
     dialogues= context.split('\n') 
     inputs = []  
     for dial in dialogues:
-        role = dial.split("：")[0]
-        dial = "：".join(dial.split("：")[1:])
+        dial_list = dial.split("：")
+        role = dial_list[0]
+        dial = "：".join(dial_list[1:])
         inputs.append({"from":role,"value":dial})
     return inputs
 

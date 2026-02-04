@@ -20,7 +20,25 @@ def format_input(example):
 tokenizer = BaichuanTokenizer.from_pretrained(reward_model_path)
 tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "left" 
-base_model = BaichuanCharRM.from_pretrained(reward_model_path, torch_dtype=torch.bfloat16).cuda()
+# 关键：多卡分片 + 限制每张卡最多用多少显存
+max_memory = {
+    0: "22GiB",
+    1: "22GiB",
+    2: "22GiB",
+    3: "22GiB",
+    4: "22GiB",
+    # 有几张卡就写几张；留 1~3GiB 余量避免碎片/峰值
+    "cpu": "64GiB",   # 允许溢出到 CPU（更省 GPU，但会慢一些）
+}
+# o
+base_model = BaichuanCharRM.from_pretrained(
+    reward_model_path,
+    torch_dtype=torch.bfloat16,
+    device_map="auto",
+    max_memory=max_memory,
+    low_cpu_mem_usage=True,
+)
+embed_device = base_model.model.embed_tokens.weight.device
 
 
 import tqdm
@@ -30,8 +48,10 @@ for record in tqdm.tqdm(records):
     input_ids = tokenizer.encode(text=input_text, add_special_tokens=False) + [tokenizer.eos_token_id]
     if len(input_ids) > max_seq_length:
         input_ids = input_ids[-max_seq_length:]
-    input_ids = torch.tensor(input_ids).unsqueeze(0).cuda()
-    with torch.no_grad():
+    # input_ids = torch.tensor(input_ids).unsqueeze(0).cuda()
+    input_ids = torch.tensor(input_ids).unsqueeze(0).to(embed_device)
+    # with torch.no_grad():
+    with torch.inference_mode():
         score = base_model(input_ids=input_ids)[1].item() * 4 + 1
         record[record['metric_en']] = score
 
